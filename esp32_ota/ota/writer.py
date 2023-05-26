@@ -50,9 +50,6 @@ class OTA:
     def write_file(self, f) -> int:
         return self.writer.write_file(f)
 
-    def verify(self) -> int:
-        return self.writer.verify()
-
     def close(self) -> bool:
         ret = self.writer.close()
         # Set as boot partition for next reboot
