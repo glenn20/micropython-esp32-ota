@@ -3,32 +3,45 @@
 Some classes and tools for Over-The-Air (OTA) updates on ESP32.
 
 These tools are for managing OTA updates of the micropython firmware installed
-in the device flash storage (not the python files on the flash storage).
+in the device flash storage (not the python files in the mounted filesystem).
 
-## `ota` module
+1. [Introduction](#introduction)
+1. [How it Works: an OTA-enabled partition table](#how-it-works)
+1. [API Docs](#api-docs)
+     - [ota.update
+       module](#otaupdate-module-writing-a-new-micropython-firmware-with-ota)
+       and [examples](#examples)
+     - [ota.rollback module](#otarollback-module-managing-the-bootloaders-rollback-mechanism)
+     - [ota.status module](#otastatus-module-read-and-display-information-about-the-ota-system)
 
-Check the device is OTA-enabled:
+## Introduction
+
+Write a new micropython image from a web server to the next OTA partition on the
+flash storage:
 
 ```py
-import ota
-if not ota.ready():
-    print("Install an OTA-enabled micropython firmware (or bootloader) to use OTA.")
-```
-
-After booting up successfully, stop the esp32 from rolling back to the previous
-image:
-
-```py
-import ota
-ota.stop_rollback()
+>>> from ota.update import OTA
+>>> with OTA(verify=True, verbose=True, reboot=True) as ota:
+>>>     ota.from_firmware_file("http://nas.local/micropython.bin")
+Writing new micropython image to OTA partition 'ota_0'...
+Device capacity: 384 x 4096 byte blocks.
+Opening firmware file http://nas.local/micropython.bin...
+Writing 380 blocks + 2032 bytes.
+BLOCK 380 + 2032 bytes
+Verifying SHA of the written data...Passed.
+SHA256=7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e
+OTA Partition 'ota_0' updated successfully.
+Micropython will boot from 'ota_0' partition on next boot.
+Remember to call ota.rollback.cancel() after successful reboot.
+Rebooting in 10 seconds (ctrl-C to cancel)
 ```
 
 Print the current status of the OTA partitions on the device:
 
 ```py
->>> from ota.status import status
->>> status()
-Micropython firmware is loading from partition 'ota_0'.
+>>> import ota.status
+>>> ota.status.status()
+Micropython firmware v1.20.0 has booted from partition 'ota_0'.
 The next OTA partition is 'ota_1'.
 The / filesystem is mounted from partition 'vfs'.
 Partition table:
@@ -42,96 +55,247 @@ Partition table:
 >>>
 ```
 
-### Writing a new micropython firmware with OTA
-
-Write a new micropython image from a web server to the next OTA partition on the
-flash storage:
+After booting up successfully, stop the esp32 from rolling back to the previous
+firmware on next boot (should do this on every successful boot and app startup):
 
 ```py
->>> import urequests
->>> from ota.writer import OTA
->>> with OTA() as ota:
->>>    r = urequests.get("http://nas.lan/micropython/micropython.bin")
->>>    ota.write_file(r.raw)
-Writing new micropython image to OTA partition 'ota_1'...
-Device: 384 x 4096 byte blocks.
-Writing 372 blocks + 1824 bytes.
-BLOCK 372 + 1824 bytes
-Verifying 372 blocks + 1824 bytes...Passed.
-SHA256=18026395faa6c39201b422017cdc4d136f8f84f654e4a79a7acf13ccac5dcb6f
-OTA Partition 'ota_1' updated successfully.
-Micropython will be loaded from 'ota_1' on next hard reboot.
-Remember to call esp32.Partition.mark_app_valid_cancel_rollback() after reboot.
->>> r.close()
+import ota.rollback
+ota.rollback.cancel()
 ```
 
-Write a new micropython firmware image from a file:
+## How it works
 
-```py
-import urequests
-from ota.writer import OTA
-with open("micropython.bin") as f, OTA() as ota:
-    ota.write_file(f)
+### An OTA-enabled partition table
+
+To support Over-The-Air updates, a micropython image requires a special
+partition table, such as:
+
+```text
+Partition table:
+# Name       Type     SubType      Offset       Size (bytes)
+  nvs        data     nvs          0x9000     0x4000     16,384
+  otadata    data     ota          0xd000     0x2000      8,192
+  phy_init   data     phy          0xf000     0x1000      4,096
+  ota_0      app      ota_0       0x10000   0x180000  1,572,864
+  ota_1      app      ota_1      0x190000   0x180000  1,572,864
+  vfs        data     fat        0x310000    0xf0000    983,040
 ```
 
-Set the expected length and sha256 hash of the micropython image file. The
-length and hash will be checked and verified:
+- Use `ota.status.status()` to print the full partition table of your device.
 
-```py
-import urequests
-from ota.writer import OTA
-file_name = "micropython.bin"
-file_sha = "18026395faa6c39201b422017cdc4d136f8f84f654e4a79a7acf13ccac5dcb6f"
-file_length = 1525536
-f = open(file_name)
-ota = OTA(sha=file_sha, length=file_length):
-ota.write_file(f)
-ota.close()
-f.close()
-```
+For micropython, an OTA-enabled partition table usually includes:
 
-## `ota.writer` module
+- one partition with a subtype of `ota` (usually named `otadata`)
+  - where the bootloader saves metadata about the state of the ota partitions
+- two `app` partitions with subtypes of `ota_0` and `ota_1`.
+  - The OTA updater writes new micropython firmware images into these partitions
+- and usually one `data` partition named `vfs` or `fat`.
 
-The `ota.writer` modules provides the `OTA` class:
+Any micropython image built with `BOARD_VARIANT=OTA` will have a partition table
+like this (including the official OTA images at
+<https://micropython.org/download/ESP32_GENERIC>).
 
-```py
-OTA(sha="", length=0, verify=True, verbose=True, reboot=False)
-```
+### Writing new firmware into the `ota` partitions
 
-which will:
+The partition table has to make room for **two** `app` partitions on the device
+(instead of the normal one). This means space is tight on a 4MB flash device.
+The OTA partition usually has less room for each micropython firmware image
+(1.5MB instead of 2MB) and much less room for the `vfs` filesystem partition
+(<1MB instead of 2MB). Devices with more than 4MB of flash can use larger `app`
+and `vfs` partitions.
 
-- Check that:
-  - The bootloader is OTA-enabled (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y)
+Micropython will boot from one of the `ota_*` `app` partitions and write new
+firmware to the other one. After writing new firmware to the other partition, it
+will be set as the boot partition for the next reboot. The old firmware image is
+still available in case it is necessary to **rollback** to the previous
+firmware.
+
+After booting from either `ota` partition, the micropython firmware will
+automatically mount the `/` filesystem from the `vfs` partition.
+
+## API docs
+
+## `ota.update` module: Writing a new micropython firmware with OTA
+
+The `ota.update` module provides the `OTA` class which  can be used to write new
+micropython firmware to the next `ota` partition on the device.
+
+### class `ota.update.OTA(verify=True, verbose=True, reboot=False, sha="", length=0)`
+
+- Create an `OTA` class instance which can be used to write new micropython
+  firmware on the device. May be used as a context manager in a `with`
+  statement.
+- Checks that:
+  - The bootloader is OTA-enabled (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`)
   - There are OTA partitions available to write the new firmware
-    - `esp32.Partition(esp32.Partition.RUNNING).get_next_update()`
-  - The image will fit in the OTA partition
-- Write the new firmware image to the OTA partition
-  - Compute sha256 hash of data written
+      ([`esp32.Partition.get_next_update()`](
+      https://docs.micropython.org/en/latest/library/esp32.html#esp32.Partition))
+- Arguments:
+  - `verify`: if true, read back the data from the partition on `close()` to
+    verify the sha256sum matches the written data
+  - `verbose`: if true, print out useful progress and diagnostic information
+  - `reboot`: if true, reboot the device on `close()` - if all checks pass
+  - `sha`: optionally provide the expected sha256sum of the firmware
+  - `length`: optionally specify the length of the firmware file and check it
+    will fit on device
+    - `sha` and `length` may instead be provided as arguments to some methods
+      below.
+
+#### Method: `OTA.from_firmware_file(url: str, sha="", length=0) -> int`
+
+- Read a micropython firmware from `url` and write it to the next `ota`
+  partition. `sha` and `length` are used to validate the data written to the
+  partition. Returns the number of bytes written to the partition.
+
+  - `url` is a http[s] url or a filename on the device
+  - `sha` (optional) is the expected sha256sum of the firmware file
+  - `length` (optional) is the expected length of the firmware file (in bytes)
+
+#### Method: `OTA.from_json(url: str) -> int`
+
+- Read a JSON file from `url` (must end in ".json") containing the `url`, `sha`
+  and `length` of the firmware file. Then, read the firmware file and write it
+  to the next `ota` partition. Returns the number of bytes written to the
+  partition.
+
+  The JSON file should specify an object including the `firmware`, `sha`, and
+  `length` keys, eg:
+
+  ```json
+  { "firmware": "micropython.bin",
+    "sha": "7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e",
+    "length": 1558512 }
+  ```
+
+  The `firmware` key provides a url (or filename) for the firmware image. This
+  may be specified relative to the basename of the `url` for the json file.
+
+#### Method: `OTA.from_stream(f, sha="", length=0) -> int`
+
+- Read a micropython firmware from an open file/stream, `f`, and write it to the
+  next `ota` partition. Returns the number of bytes written to the partition.
+  `sha` and `length` are used to validate the data written to the partition.
+  - `f` is an io stream (file-like object) which supports the `readinto()`
+    method
+  - `sha` (optional) is the expected sha256sum of the firmware file
+  - `length` (optional) is the expected length of the firmware file (in bytes)
+
+#### Method: `OTA.write(data: bytes | bytearray) -> int`
+
+- Copy `data` to the end of the firmware file being written to the `ota`
+  partition.
+
+#### Method: `OTA.close()`
+
+- Flush buffered data to the `ota` partition
+  - Compute the sha256sum of data written
 - Check length of firmware matches expected length (if provided)
-- Check sha256 of firmware matches expected hash (if provided)
-- **If** `verify=True` is set:
-  - Read back firmware from OTA partition and check sha256 hash matches
-- **If all checks pass**:
-  - Set the new OTA partition as boot partition (and verify the image):
-    - `esp32.Partition.set_boot()`
-  - **If** `reboot=True` is set, perform a hard reset of the device
+- Check sha256sum of firmware matches expected hash (if provided)
+- If `verify` is true:
+  - read back firmware from partition and check sha256sum matches
+- Validate the new firmware image and set the new OTA partition as boot
+  partition:
+  - [`esp32.Partition.set_boot()`](
+    https://docs.micropython.org/en/latest/library/esp32.html#esp32.Partition)
+- If `reboot` is true, perform a hard [reset](
+  https://docs.micropython.org/en/latest/library/machine.html#machine.reset)
+  of the device after a delay of 10 seconds.
 
-If the `OTA` instance is successful and all checks are passed, the new firmware
-will be loaded after the next reboot.
+If all checks pass, the new firmware will be loaded after the next reboot. If
+any checks fail, a `ValueError` exception will be raised.
 
-### Rollback
+- `OTA.close()` will be called automatically if `OTA` is used in a `with`
+statement (as a context manager).
 
-After booting into the new firmware, the ESP32 will automatically rollback to
-the previous firmware on the next reboot, unless you mark the new firmware as
-good by cancelling the rollback with
-`esp32.Partition.mark_app_valid_cancel_rollback()` (or `ota.stop_rollback()`).
+### Examples
 
-If the new firmware fails to startup or your app does not operate correctly,
-reboot the device without cancelling the rollback.
+```py
+from ota.update import OTA
 
-A reasonable approach is to call `ota.stop_rollback()` on every boot (eg. in
-`main.py` or after your app has successfully started up).
+# Write firmware from a url provided in a JSON file
+with OTA() as ota:
+    ota.from_json("http://nas.local/micropython/micropython.json")
 
-See the [ESP32
-docs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/ota.html#app-rollback)
-for more information.
+# Write firmware from a url or filename and reboot if successful and verified
+with OTA(reboot=True) as ota:
+    ota.from_firmware_file(
+        "http://nas.local/micropython/micropython.bin",
+        sha="7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e",
+        length=1558512)
+
+# Write firmware from an open stream:
+with OTA() as ota:
+    with open("/sdcard/micropython.bin", "rb") as f:
+        ota.from_stream(f)
+
+# Read a firmware file from a serial uart
+remaining = 1558512
+sha = "7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e"
+with OTA(length=remaining, sha=sha) as ota:
+    data = memoryview(bytearray(1024))
+    gc.collect()
+    while remaining > 0:
+        n = uart.readinto(data[:min(remaining, len(data))]):
+        ota.write(data[:n])
+        remaining -= n
+
+# Used without the "with" statement - must call close() explicitly
+ota = OTA()
+ota.from_json("http://nas.local/micropython/micropython.json")
+ota.close()
+```
+
+## `ota.rollback` module: Managing the bootloader's rollback mechanism
+
+When booting a new OTA firmware for the first time, you need to tell the
+bootloader if it is OK to continue using the new firmware. Otherwise, the
+bootloader will assume something went wrong and automatically **rollback** to
+the previous firmware on the next reboot. You can use `ota.rollback.cancel()` to
+tell the bootloader not to rollback to the previous firmware.
+
+If the new firmware fails to startup or your app does not operate correctly with
+the new firmware, reboot the device **without** cancelling the rollback and the
+old firmware will be restored. You may also wish to use a [watchdog timer
+(WDT)](https://docs.micropython.org/en/latest/library/machine.WDT.html) during
+your app startup sequence to force a reboot if the startup hangs or fails before
+you call `ota.rollback.cancel()`.
+
+**Note:** the rollback mechanism is only available if the bootloader was
+compiled with `CONFIG_BOOTLOADER_ROLLBACK_ENABLE=y`.
+
+### function `ota.rollback.cancel()`
+
+- Tell the bootloader to continue booting this `ota` firmware partition by
+  invoking [`esp_ota_mark_app_valid_cancel_rollback()`](
+  https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/ota.html#app-rollback).
+- A reasonable approach is to call `ota.rollback.cancel()` on every successful
+  boot (eg. in `main.py` or after your app has successfully started up). The
+  `ota.rollback` module is designed to be lightweight so you can call it every
+  time your device boots up.
+
+### function `ota.rollback.force()`
+
+- Manually set the next reboot to boot from the **other** `ota` partition. This
+  bypasses the bootloader's OTA rollback provisions, but lets you switch between
+  the two firmwares on the device as you need.
+
+### function `ota.rollback.cancel_force()`
+
+- Cancel any previous call to `ota.rollback.force()`. This function will
+  manually set the boot partition for future boots to the currently booted
+  partition.
+
+## `ota.status` module: Read and display information about the `ota` system
+
+### function `ota.status.status()`
+
+- Check the current firmware is OTA-capable
+- Print the current partition table
+- Show which is the currently booted partition
+- Show the partition which will be used on next reboot
+
+### function `ota.status.ready() -> bool`
+
+- Return `True` if the current device supports OTA firmware updates:
+  - the bootloader was compiled with `CONFIG_BOOTLOADER_ROLLBACK_ENABLE=y`, and
+  - the partition table supports OTA updates.

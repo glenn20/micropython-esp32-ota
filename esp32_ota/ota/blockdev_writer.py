@@ -4,192 +4,156 @@
 # Based on OTA class by Thorsten von Eicken (@tve):
 #   https://github.com/tve/mqboard/blob/master/mqrepl/mqrepl.py
 
-import binascii
 import hashlib
+import io
 
 from micropython import const
 
-IOCTL_BLOCK_COUNT = const(4)
-IOCTL_BLOCK_SIZE = const(5)
-IOCTL_BLOCK_ERASE = const(6)
+IOCTL_BLOCK_COUNT: int = const(4)  # type: ignore
+IOCTL_BLOCK_SIZE: int = const(5)  # type: ignore
+IOCTL_BLOCK_ERASE: int = const(6)  # type: ignore
 
 
-class Blockdev:
-    def __init__(self, device, verbose: bool = True):
+# An IOBase compatible class to wrap access to an os.AbstractBlockdev() device
+# such as a partition on the device flash. Writes must be aligned to block
+# boundaries.
+# https://docs.micropython.org/en/latest/library/os.html#block-device-interface
+# Extend IOBase so we can wrap this with io.BufferedWriter in BlockdevWriter
+class Blockdev(io.IOBase):
+    def __init__(self, device):
         self.device = device
-        self.blocksize: int = device.ioctl(IOCTL_BLOCK_SIZE, None)
-        self.blockcount: int = self.device.ioctl(IOCTL_BLOCK_COUNT, None)
-        self.pos = 0
-        self.end = 0
-        self.verbose = verbose
+        self.blocksize = int(device.ioctl(IOCTL_BLOCK_SIZE, None))
+        self.blockcount = int(device.ioctl(IOCTL_BLOCK_COUNT, None))
+        self.pos = 0  # Current position (bytes from beginning) of device
+        self.end = 0  # Current end of the data written to the device
 
-    # The number of bytes written to the device
-    def size(self) -> int:
-        return self.end
-
-    # Data must be a multiple of blocksize or less than blocksize
-    # If len(data) < blocksize it must be the last write to the device.
-    def write(self, data: bytearray | memoryview) -> int:
+    # Data must be a multiple of blocksize unless it is the last write to the
+    # device. The next write after a partial block will raise ValueError.
+    def write(self, data: bytes | bytearray | memoryview) -> int:
         block, remainder = divmod(self.pos, self.blocksize)
         if remainder:
             raise ValueError(f"Block {block} write not aligned at block boundary.")
-        if len(data) % self.blocksize == 0:  # Write whole blocks
-            self.device.writeblocks(block, data)
-            if self.verbose:
-                print(f"\rBLOCK {block}", end="")
-        elif len(data) < self.blocksize:  # Write a partial block
+        data_len = len(data)
+        nblocks, remainder = divmod(data_len, self.blocksize)
+        mv = memoryview(data)
+        if nblocks:  # Write whole blocks
+            self.device.writeblocks(block, mv[: nblocks * self.blocksize])
+            block += nblocks
+        if remainder:  # Write left over data as a partial block
             self.device.ioctl(IOCTL_BLOCK_ERASE, block)  # Erase block first
-            self.device.writeblocks(block, data, 0)
-            if self.verbose:
-                print(f"\rBLOCK {block} + {len(data)} bytes", end="")
-        else:
-            raise ValueError(f"Block {block} is not multiple of blocksize.")
-        self.pos += len(data)
-        self.end = self.pos
-        return len(data)
+            self.device.writeblocks(block, mv[-remainder:], 0)
+        self.pos += data_len
+        self.end = self.pos  # The "end" of the data written to the device
+        return data_len
 
-    # Data must a multiple of blocksize or less than blocksize
-    # If len(data) < blocksize it must be the last read
+    # Read data from the block device.
     def readinto(self, data: bytearray | memoryview):
-        if self.pos == self.end:
-            return 0
+        size = min(len(data), self.end - self.pos)
         block, remainder = divmod(self.pos, self.blocksize)
-        if remainder:
-            raise ValueError(f"Block {block} read not aligned at block boundary.")
-        if len(data) % self.blocksize != 0 and len(data) > self.blocksize:
-            raise ValueError(f"Block {block} is not multiple of blocksize.")
-        ln, remaining = len(data), self.end - self.pos
-        if ln <= remaining:
-            self.device.readblocks(block, data)
-        else:
-            ln = remaining
-            mv = memoryview(data)
-            self.device.readblocks(block, mv[:ln], 0)
-        self.pos += ln
-        return ln
+        self.device.readblocks(block, memoryview(data)[:size], remainder)
+        self.pos += size
+        return size
 
+    # Set the current file position for reading or writing
     def seek(self, offset: int, whence: int = 0):
         start = [0, self.pos, self.end]
         self.pos = start[whence] + offset
 
 
-# A simple class to wrap a Blockdev object with buffered writes
-class BufferedBlockdev(Blockdev):
-    def __init__(self, device: Blockdev, size: int = 0, verbose: bool = True):
-        super().__init__(device, verbose)
-        size = size or self.blocksize
-        if size < self.blocksize or size % self.blocksize != 0:
-            raise ValueError(f"size must be multiple of blocksize ({self.blocksize})")
-        self._mv = memoryview(bytearray(size))
-        self._bufp: int = 0
-        self.sha = hashlib.sha256()
-
-    def flush(self) -> None:
-        if self._bufp:
-            mv = self._mv[: self._bufp]
-            super().write(mv)
-            self.sha.update(mv)  # Maintain a hash of bytes written to device
-            self._bufp = 0
-
-    def write(self, data: bytearray | memoryview) -> int:
-        data_mv = memoryview(data)  # Avoid allocating memory
-        data_in, data_len = 0, len(data)
-        while data_in < data_len:
-            # Copy as much data as will fit in the rest of the buffer
-            ln = min(len(self._mv) - self._bufp, data_len - data_in)
-            self._mv[self._bufp : self._bufp + ln] = data_mv[data_in : data_in + ln]
-            self._bufp += ln
-            if self._bufp == len(self._mv):
-                self.flush()
-            data_in += ln
-        return len(data)
-
-    # Append data from f to the block device
-    def write_file(self, f) -> int:
-        start = self.pos
-        while (n := f.readinto(self._mv[self._bufp :])) != 0:
-            self._bufp += n
-            if self._bufp == len(self._mv):
-                self.flush()
-        return self.pos - start
+# Calculate the SHA256 sum of a file (has a readinto() method)
+def sha_file(f, buffersize=4096) -> str:
+    mv = memoryview(bytearray(buffersize))
+    read_sha = hashlib.sha256()
+    while (n := f.readinto(mv)) > 0:
+        read_sha.update(mv[:n])
+    return read_sha.digest().hex()
 
 
-# BlockdevWriter provides a convenient interface to writing images to any
-# block device which implements the os.AbstractBlockDev interface.
-# (eg. Partition on flash storage on ESP32)
+# BlockdevWriter provides a convenient interface to writing images to any block
+# device which implements the micropython os.AbstractBlockDev interface (eg.
+# Partition on flash storage on ESP32).
+# https://docs.micropython.org/en/latest/library/os.html#block-device-interface
+# https://docs.micropython.org/en/latest/library/esp32.html#flash-partitions
 class BlockDevWriter:
     def __init__(
         self,
         device,  # Block device to recieve the data (eg. esp32.Partition)
-        sha: str | bytes = "",  # The expected hash of the data to be written
-        length: int = 0,  # Expected length of the data to be written
         verify: bool = True,  # Should we read back and verify data after writing
-        verbose: bool = True,  # Print out details and progress
+        verbose: bool = True,
     ):
-        self.device = BufferedBlockdev(device)
-        self.sha_check = str(sha)
-        self._length = length
-        self._verify = verify
-        self._verbose = verbose
+        self.device = Blockdev(device)
+        self.writer = io.BufferedWriter(
+            self.device, self.device.blocksize  # type: ignore
+        )
+        self._sha = hashlib.sha256()
+        self.verify = verify
+        self.verbose = verbose
         self.sha: str = ""
+        self.length: int = 0
+        blocksize, blockcount = self.device.blocksize, self.device.blockcount
+        if self.verbose:
+            print(f"Device capacity: {blockcount} x {blocksize} byte blocks.")
 
+    def set_sha_length(self, sha: str, length: int):
+        self.sha = sha
+        self.length = length
         blocksize, blockcount = self.device.blocksize, self.device.blockcount
         if length > blocksize * blockcount:
             raise ValueError(f"length ({length} bytes) is > size of partition.")
-        self.print(f"Device: {blockcount} x {blocksize} byte blocks.")
-        if length:
+        if self.verbose and length:
             blocks, remainder = divmod(length, blocksize)
-            self.print(f"Writing {blocks} blocks + {remainder} bytes.")
+            print(f"Writing {blocks} blocks + {remainder} bytes.")
 
-    def print(self, *args, **kwargs) -> None:
-        if self._verbose:
-            print(*args, **kwargs)
+    def print_progress(self):
+        if self.verbose:
+            block, remainder = divmod(self.device.pos, self.device.blocksize)
+            print(f"\rBLOCK {block}", end="")
+            if remainder:
+                print(f" + {remainder} bytes")
 
     # Append data to the block device
-    def write(self, data: bytearray) -> int:
-        return self.device.write(data)
+    def write(self, data: bytearray | bytes | memoryview) -> int:
+        self._sha.update(data)
+        n = self.writer.write(data)
+        self.print_progress()
+        return n
 
-    # Append data to the block device
-    def write_file(self, f) -> int:
-        return self.device.write_file(f)
+    # Append data from f (a stream object) to the block device
+    def write_from_stream(self, f: io.BufferedReader) -> int:
+        mv = memoryview(bytearray(self.device.blocksize))
+        tot = 0
+        while (n := f.readinto(mv)) != 0:
+            tot += self.write(mv[:n])
+        return tot
 
     # Flush remaining data to the block device and confirm all checksums
     # Raises:
-    #   ValueError("SHA mismatch...") if SHA != provided sha
+    #   ValueError("SHA mismatch...") if SHA of received data != expected sha
     #   ValueError("SHA verify fail...") if verified SHA != written sha
-    def close(self) -> bool:
-        self.device.flush()  # Flush data in buffer to device
-        self.print()
+    def close(self) -> None:
+        self.writer.flush()
+        self.print_progress()
         # Check the checksums (SHA256)
-        self.sha = binascii.hexlify(self.device.sha.digest()).decode()
-        bytes_written = self.device.size()
-        if self._length and self._length != bytes_written:
-            raise ValueError(f"Receive {bytes_written} bytes (expect {self._length}).")
-        if self.sha_check and self.sha_check != self.sha:
-            raise ValueError(f"SHA mismatch recv={self.sha} expect={self.sha_check}.")
-        if self._verify:
-            self.verify()
-        if self._verbose or not self.sha_check:
+        nbytes: int = self.device.end
+        if self.length and self.length != nbytes:
+            raise ValueError(f"Received {nbytes} bytes (expect {self.length}).")
+        write_sha = self._sha.digest().hex()
+        if not self.sha:
+            self.sha = write_sha
+        if self.sha != write_sha:
+            raise ValueError(f"SHA mismatch recv={write_sha} expect={self.sha}.")
+        if self.verify:
+            if self.verbose:
+                print("Verifying SHA of the written data...", end="")
+            self.device.seek(0)  # Reset to start of partition
+            read_sha = sha_file(self.device, self.device.blocksize)
+            if read_sha != write_sha:
+                raise ValueError(f"SHA verify failed write={write_sha} read={read_sha}")
+            if self.verbose:
+                print("Passed.")
+        if self.verbose or not self.sha:
             print(f"SHA256={self.sha}")
         self.device.seek(0)  # Reset to start of partition
-        return (bytes_written, self.sha)
-
-    # Read back the data we have written to the partition and check the
-    # checksums. Must be called from, or after, close().
-    def verify(self) -> str | None:
-        self.device.seek(0)  # Reset to start of partition
-        blocks, remainder = divmod(self.device.size(), self.device.blocksize)
-        self.print(f"Verifying {blocks} blocks + {remainder} bytes...", end="")
-        mv = memoryview(bytearray(self.device.blocksize))
-        read_sha = hashlib.sha256()
-        while (n := self.device.readinto(mv)) > 0:
-            read_sha.update(mv[:n])
-        # Check the read and write checksums
-        read_sha = binascii.hexlify(read_sha.digest()).decode()
-        if read_sha != self.sha:
-            raise ValueError(f"SHA verify failed: write={self.sha} read={read_sha}")
-        self.print("Passed.")
-        return read_sha
 
     def __enter__(self):
         return self
