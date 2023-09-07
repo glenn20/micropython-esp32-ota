@@ -131,6 +131,27 @@ firmware.
 After booting from either **ota** partition, the micropython firmware will
 automatically mount the `/` filesystem from the **vfs** partition.
 
+### Micropython firmware for OTA updates
+
+An OTA partition should be updated from a **"micropython app binary"**. The
+micropython firmware ".bin" files downloaded from the [MicroPython downloads
+page](https://micropython.org/download/) combine the bootloader, partition table
+and the "micropython app binary", so can not be used for micropython OTA
+updates.
+
+There are three ways to obtain a `micropython.bin` you can use for OTA updates:
+
+1. Download a `.app-bin` file from the [MicroPython downloads
+   page](https://micropython.org/download/),
+   - these are currently only available for the "Nightly builds".
+1. Use the `micropython.bin` file in the `ports/esp32/build_XXX` folder
+   - if you build your own micropython firmware, or
+1. Extract the `micropython.bin` from a combined firmware binary (on linux):
+   - `dd bs=4096 skip=15 if=firmware.bin of=micropython.bin`
+     - for ESP32 and ESP32S2 images (skip first 61440 bytes of file)
+   - `dd bs=4096 skip=16 if=firmware-S3.bin of=micropython.bin`
+     - for ESP32S3 and ESP32C3 images (skip first 65536 bytes of file)
+
 ## API docs
 
 ### `ota.update` module
