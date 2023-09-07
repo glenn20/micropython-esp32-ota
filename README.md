@@ -1,36 +1,14 @@
 # Micropython OTA tools for ESP32 devices
 
-Some classes and tools for Over-The-Air (OTA) updates on ESP32.
+Some classes and tools for Over-The-Air (OTA) firmware updates on ESP32. I
+wanted a simple and flexible interface for managing and running OTA updates for
+ESP32* devices. These tools are for managing OTA updates of the micropython
+firmware installed in the device flash storage (not the python files in the
+mounted filesystem).
 
-These tools are for managing OTA updates of the micropython firmware installed
-in the device flash storage (not the python files in the mounted filesystem).
-
-1. [Installation](#installation)
-1. [Usage](#usage)
-1. [How it Works: an OTA-enabled partition table](#how-it-works)
-1. [API Docs](#api-docs)
-     - [ota.update module](#otaupdate-module) and [examples](#examples)
-     - [ota.rollback module](#otarollback-module)
-     - [ota.status module](#otastatus-module)
-
-## Installation
-
-Install `ota` package with [`mpremote`](
-  https://docs.micropython.org/en/latest/reference/packages.html#installing-packages-with-mpremote)
-  into `/lib/ota/` on the device (as **.py** modules):
-
-```bash
-mpremote mip install github:glenn20/micropython-esp32-ota
-```
-
-or, install module as byte-compiled [**.mpy**](
-  https://docs.micropython.org/en/latest/reference/mpyfiles.html) files
-
-```bash
-mpremote mip install github:glenn20/micropython-esp32-ota/mpy
-```
-
-Remember to ensure `/lib` is in your `sys.path`.
+Contents: [Usage](#usage) | [Installation](#installation) | [How it
+   Works:](#how-it-works) | Module API docs: [ota.update](#otaupdate-module),
+   [ota.rollback](#otarollback-module), [ota.status](#otastatus-module)
 
 ## Usage
 
@@ -73,13 +51,33 @@ Partition table:
 >>>
 ```
 
-After booting up successfully, stop the esp32 from rolling back to the previous
-firmware on next boot (should do this on every successful boot and app startup):
+After booting up successfully, stop the esp32 from [rolling
+back](#otarollback-module) to the previous firmware on next boot (should do this
+on every successful boot and app startup):
 
 ```py
 import ota.rollback
 ota.rollback.cancel()
 ```
+
+## Installation
+
+Install `ota` package with [`mpremote`](
+  https://docs.micropython.org/en/latest/reference/packages.html#installing-packages-with-mpremote)
+  into `/lib/ota/` on the device (as **.py** modules):
+
+```bash
+mpremote mip install github:glenn20/micropython-esp32-ota
+```
+
+or, install module as byte-compiled [**.mpy**](
+  https://docs.micropython.org/en/latest/reference/mpyfiles.html) files
+
+```bash
+mpremote mip install github:glenn20/micropython-esp32-ota/mpy
+```
+
+Remember to ensure `/lib` is in your `sys.path`.
 
 ## How it works
 
@@ -133,7 +131,7 @@ automatically mount the `/` filesystem from the **vfs** partition.
 
 ### Micropython firmware for OTA updates
 
-An OTA partition should be updated from a **"micropython app binary"**. The
+An OTA partition should be updated with a **"micropython app binary"**. The
 micropython firmware ".bin" files downloaded from the [MicroPython downloads
 page](https://micropython.org/download/) combine the bootloader, partition table
 and the "micropython app binary", so can not be used for micropython OTA
