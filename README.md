@@ -15,12 +15,19 @@ in the device flash storage (not the python files in the mounted filesystem).
 
 ## Installation
 
-Install with [`mpremote`](
+Install `ota` package with [`mpremote`](
   https://docs.micropython.org/en/latest/reference/packages.html#installing-packages-with-mpremote)
-  into `/lib/ota/` on the device:
+  into `/lib/ota/` on the device (as **.py** modules):
 
 ```bash
 mpremote mip install github:glenn20/micropython-esp32-ota
+```
+
+or, install module as byte-compiled [**.mpy**](
+  https://docs.micropython.org/en/latest/reference/mpyfiles.html) files
+
+```bash
+mpremote mip install github:glenn20/micropython-esp32-ota/mpy
 ```
 
 Remember to ensure `/lib` is in your `sys.path`.
