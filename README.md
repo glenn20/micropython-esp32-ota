@@ -5,12 +5,25 @@ Some classes and tools for Over-The-Air (OTA) updates on ESP32.
 These tools are for managing OTA updates of the micropython firmware installed
 in the device flash storage (not the python files in the mounted filesystem).
 
+1. [Installation](#installation)
 1. [Usage](#usage)
 1. [How it Works: an OTA-enabled partition table](#how-it-works)
 1. [API Docs](#api-docs)
      - [ota.update module](#otaupdate-module) and [examples](#examples)
      - [ota.rollback module](#otarollback-module)
      - [ota.status module](#otastatus-module)
+
+## Installation
+
+Install with [`mpremote`](
+  https://docs.micropython.org/en/latest/reference/packages.html#installing-packages-with-mpremote)
+  into `/lib/ota/` on the device:
+
+```bash
+mpremote mip install github:glenn20/micropython-esp32-ota
+```
+
+Remember to ensure `/lib` is in your `sys.path`.
 
 ## Usage
 
@@ -248,9 +261,10 @@ ota.close()
 
 When booting a new OTA firmware for the first time, you need to tell the
 bootloader if it is OK to continue using the new firmware. Otherwise, the
-bootloader will assume something went wrong and automatically **rollback** to
-the previous firmware on the next reboot. You can use `ota.rollback.cancel()` to
-tell the bootloader not to rollback to the previous firmware.
+bootloader will assume something went wrong and automatically [**rollback**](
+  https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/ota.html#app-rollback)
+to the previous firmware on the next reboot. You can use `ota.rollback.cancel()`
+to tell the bootloader not to rollback to the previous firmware.
 
 If the new firmware fails to startup or your app does not operate correctly with
 the new firmware, reboot the device **without** cancelling the rollback and the
