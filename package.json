@@ -1,9 +1,9 @@
 {
     "urls": [
-        ["ota/rollback.py", "github:glenn20/micropython-esp32-ota/esp32_ota/ota/rollback.py"],
-        ["ota/status.py", "github:glenn20/micropython-esp32-ota/esp32_ota/ota/status.py"],
-        ["ota/update.py", "github:glenn20/micropython-esp32-ota/esp32_ota/ota/update.py"],
-        ["ota/blockdev_writer.py", "github:glenn20/micropython-esp32-ota/esp32_ota/ota/blockdev_writer.py"]
+        ["ota/rollback.py", "github:glenn20/micropython-esp32-ota/mip/ota/rollback.py"],
+        ["ota/status.py", "github:glenn20/micropython-esp32-ota/mip/ota/status.py"],
+        ["ota/update.py", "github:glenn20/micropython-esp32-ota/mip/ota/update.py"],
+        ["ota/blockdev_writer.py", "github:glenn20/micropython-esp32-ota/mip/ota/blockdev_writer.py"]
     ],
     "deps": [
     ],

@@ -67,14 +67,14 @@ Install `ota` package with [`mpremote`](
   into `/lib/ota/` on the device (as **.py** modules):
 
 ```bash
-mpremote mip install github:glenn20/micropython-esp32-ota
+mpremote mip install github:glenn20/micropython-esp32-ota/mip/ota
 ```
 
 or, install module as byte-compiled [**.mpy**](
   https://docs.micropython.org/en/latest/reference/mpyfiles.html) files
 
 ```bash
-mpremote mip install github:glenn20/micropython-esp32-ota/mpy
+mpremote mip install github:glenn20/micropython-esp32-ota/mip/ota/mpy
 ```
 
 Remember to ensure `/lib` is in your `sys.path`.
