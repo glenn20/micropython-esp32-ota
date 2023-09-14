@@ -1,0 +1,11 @@
+{
+    "urls": [
+        ["ota/rollback.mpy", "github:glenn20/micropython-esp32-ota/mip/ota/mpy/rollback.mpy"],
+        ["ota/status.mpy", "github:glenn20/micropython-esp32-ota/mip/ota/mpy/status.mpy"],
+        ["ota/update.mpy", "github:glenn20/micropython-esp32-ota/mip/ota/mpy/update.mpy"],
+        ["ota/blockdev_writer.mpy", "github:glenn20/micropython-esp32-ota/mip/ota/mpy/blockdev_writer.mpy"]
+    ],
+    "deps": [
+    ],
+    "version": "0.2"
+}
