@@ -149,6 +149,8 @@ There are three ways to obtain a `micropython.bin` you can use for OTA updates:
      - for ESP32 and ESP32S2 images (skip first 61440 bytes of file)
    - `dd bs=4096 skip=16 if=firmware-S3.bin of=micropython.bin`
      - for ESP32S3 and ESP32C3 images (skip first 65536 bytes of file)
+   - Or, use `mp-image-tool-esp32 --extract-app firmware.bin`
+     - see <https://github.com/glenn20/mp-image-tool-esp32>.
 
 ## API docs
 
