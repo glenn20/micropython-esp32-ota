@@ -111,6 +111,10 @@ Any micropython image built with `BOARD_VARIANT=OTA` will have a partition table
 like this (including the official OTA images at
 <https://micropython.org/download/ESP32_GENERIC>).
 
+You can also add an OTA-enabled partition table to a non-ota micropython firmware 
+file with [`mp-image-tool-esp32 --ota`](
+https://github.com/glenn20/mp-image-tool-esp32).
+
 ### Writing new firmware into the `ota` partitions
 
 The partition table has to make room for **two** **app** partitions on the
