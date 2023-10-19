@@ -52,6 +52,11 @@ Partition table:
 >>>
 ```
 
+**NOTE:** After performing an *OTA update*, the device must be `hard_reset()` or
+power cycled before it will boot into the new firmware. A `soft_reset()`
+(including pressing `ctrl-D` at the repl prompt) will **not** load the new
+firmware.
+
 After booting up successfully, stop the esp32 from [rolling
 back](#otarollback-module) to the previous firmware on next boot (should do this
 on every successful boot and app startup):
