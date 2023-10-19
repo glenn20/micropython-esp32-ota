@@ -77,10 +77,13 @@ class OTA:
             return
         self.writer.close()
         # Set as boot partition for next reboot
-        self.part.set_boot()  # Raise OSError(-5379) if image on part is not valid
         name: str = self.part.info()[4]
         print(f"OTA Partition '{name}' updated successfully.")
-        print(f"Micropython will boot from '{name}' partition on next boot.")
+        self.part.set_boot()  # Raise OSError(-5379) if image on part is not valid
+        bootname = Partition(Partition.BOOT).info()[4]
+        if name != bootname:
+            print(f"Warning: failed to set {name} as the next boot partition.")
+        print(f"Micropython will boot from '{bootname}' partition on next boot.")
         print("Remember to call ota.rollback.cancel() after successful reboot.")
         if self.reboot:
             ota_reboot()
@@ -136,3 +139,14 @@ class OTA:
         except KeyError as err:
             print('OTA json must include "firmware", "sha" and "length" keys.')
             raise err
+
+# Convenience functions which use the OTA class to perform OTA updates.
+def from_file(
+    url: str, sha="", length=0, verify=True, verbose=True, reboot=True
+) -> None:
+    with OTA(verify, verbose, reboot) as ota_update:
+        ota_update.from_firmware_file(url, sha, length)
+
+def from_json(url: str, verify=True, verbose=True, reboot=True):
+    with OTA(verify, verbose, reboot) as ota_update:
+        ota_update.from_json(url)

@@ -6,9 +6,10 @@ ESP32* devices. These tools are for managing OTA updates of the micropython
 firmware installed in the device flash storage (not the python files in the
 mounted filesystem).
 
-Contents: [Usage](#usage) | [Installation](#installation) | [How it
-   Works:](#how-it-works) | Module API docs: [ota.update](#otaupdate-module),
-   [ota.rollback](#otarollback-module), [ota.status](#otastatus-module)
+- **Contents: [Usage](#usage) | [Installation](#installation) | [How it
+  Works:](#how-it-works)**
+- **API docs: [ota.update](#otaupdate-module) |
+  [ota.rollback](#otarollback-module) | [ota.status](#otastatus-module)**
 
 ## Usage
 
@@ -111,8 +112,8 @@ Any micropython image built with `BOARD_VARIANT=OTA` will have a partition table
 like this (including the official OTA images at
 <https://micropython.org/download/ESP32_GENERIC>).
 
-You can also add an OTA-enabled partition table to a non-ota micropython firmware 
-file with [`mp-image-tool-esp32 --ota`](
+You can also add an OTA-enabled partition table to a non-ota micropython
+firmware file with [`mp-image-tool-esp32 --ota`](
 https://github.com/glenn20/mp-image-tool-esp32).
 
 ### Writing new firmware into the `ota` partitions
@@ -135,25 +136,20 @@ automatically mount the `/` filesystem from the **vfs** partition.
 
 ### Micropython firmware for OTA updates
 
-An OTA partition should be updated with a **"micropython app binary"**. The
-micropython firmware ".bin" files downloaded from the [MicroPython downloads
+An OTA partition should be updated with a **"micropython app image"**. The
+micropython firmware (`.bin` files) downloaded from the [MicroPython downloads
 page](https://micropython.org/download/) combine the bootloader, partition table
-and the "micropython app binary", so can not be used for micropython OTA
+and the **micropython app image**, so can not be used for micropython OTA
 updates.
 
 There are three ways to obtain a `micropython.bin` you can use for OTA updates:
 
 1. Download a `.app-bin` file from the [MicroPython downloads
    page](https://micropython.org/download/),
-   - these are currently only available for the "Nightly builds".
 1. Use the `micropython.bin` file in the `ports/esp32/build_XXX` folder
    - if you build your own micropython firmware, or
-1. Extract the `micropython.bin` from a combined firmware binary (on linux):
-   - `dd bs=4096 skip=15 if=firmware.bin of=micropython.bin`
-     - for ESP32 and ESP32S2 images (skip first 61440 bytes of file)
-   - `dd bs=4096 skip=16 if=firmware-S3.bin of=micropython.bin`
-     - for ESP32S3 and ESP32C3 images (skip first 65536 bytes of file)
-   - Or, use `mp-image-tool-esp32 --extract-app firmware.bin`
+1. Extract the `.app-bin` firmware from a combined firmware file with:
+   - `mp-image-tool-esp32 --extract-app ESP32_GENERIC-20231005-v1.21.0.bin`
      - see <https://github.com/glenn20/mp-image-tool-esp32>.
 
 ## API docs
@@ -162,6 +158,46 @@ There are three ways to obtain a `micropython.bin` you can use for OTA updates:
 
 The `ota.update` module provides the `OTA` class which  can be used to write new
 micropython firmware to the next **ota** partition on the device.
+
+- function `ota.update.from_file(url: str, sha="", length=0, verify=True,
+  verbose=True, reboot=True)`
+
+  Read a micropython firmware from url and write it to the next ota partition.
+  sha and length are used to validate the data written to the partition.
+  Returns the number of bytes written to the partition.
+
+  - `url` is a http[s] url or a filename on the device
+  - `sha` (optional) is the expected sha256sum of the firmware file
+  - `length` (optional) is the expected length of the firmware file (in bytes)
+  - `verify=True` (optional) Read back the data written to the flash storage and
+    veryify the sha256sum checksum.
+  - `verbose=True` (optional) prints out verbose information of what it is doing
+  - `reboot=True` (optional) Performs a `machine.hard_reset()` 10 seconds after
+    a successful OTA update.
+
+- function `ota.update.from_json(url: str, sha="", length=0, verify=True,
+  verbose=True, reboot=True)`
+
+  Read a JSON file from **url** (must end in ".json") containing the **url**,
+  **sha** and **length** of the firmware file. Then, read the firmware file and
+  write it to the next **ota** partition. Returns the number of bytes written to
+  the partition.
+
+  - The JSON file should specify an object including the **firmware**, **sha**,
+    and **length** keys, eg:
+
+    ```json
+    { "firmware": "micropython.bin",
+      "sha": "7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e",
+      "length": 1558512 }
+    ```
+
+    The **firmware** key provides a url (or filename) for the firmware image.
+    This may be specified relative to the basename of the **url** for the json
+    file.
+
+The functions above use the methods in the `OTA` class to perform the OTA
+updates.
 
 - class `ota.update.OTA(verify=True, verbose=True, reboot=False, sha="", length=0)`
 

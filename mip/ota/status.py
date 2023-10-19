@@ -20,12 +20,15 @@ OTA_MAX: int = const(32)  # type: ignore
 
 
 current_ota = Partition(Partition.RUNNING)  # Partition we booted from
-boot_ota = Partition(Partition.BOOT)  # Partition we will boot from on next boot
 next_ota = None  # Partition for the next OTA update (if device is OTA enabled)
 try:
     next_ota = current_ota.get_next_update()
 except OSError:
     pass
+
+
+def boot_ota():  # Partition we will boot from on next boot
+    return Partition(Partition.BOOT)
 
 
 # Return True if the device is configured for OTA updates
@@ -71,8 +74,7 @@ def ota_partitions() -> list[Partition]:
 def status() -> None:
     upyversion, pname = sys.version.split(" ")[2], current_ota.info()[4]
     print(f"Micropython {upyversion} has booted from partition '{pname}'.")
-    if boot_ota.info() != current_ota.info():
-        print(f" - will boot from partition '{boot_ota.info()[4]}' on next reboot.")
+    print(f"Will boot from partition '{boot_ota().info()[4]}' on next reboot.")
     if not ota_partitions():
         print("There are no OTA partitions available.")
     elif not next_ota:
