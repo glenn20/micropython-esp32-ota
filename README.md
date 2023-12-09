@@ -17,9 +17,8 @@ Write a new micropython image from a web server to the next OTA partition on the
 flash storage:
 
 ```py
->>> from ota.update import OTA
->>> with OTA(verify=True, verbose=True, reboot=True) as ota:
->>>     ota.from_firmware_file("http://nas.local/micropython.bin")
+>>> import ota.update
+>>> ota.update.from_firmware_file("http://nas.local/micropython.bin", reboot=True)
 Writing new micropython image to OTA partition 'ota_0'...
 Device capacity: 384 x 4096 byte blocks.
 Opening firmware file http://nas.local/micropython.bin...
@@ -162,7 +161,9 @@ There are three ways to obtain a `micropython.bin` you can use for OTA updates:
 ### `ota.update` module
 
 The `ota.update` module provides the `OTA` class which  can be used to write new
-micropython firmware to the next **ota** partition on the device.
+micropython firmware to the next **ota** partition on the device and two
+convenience functions which use `OTA` to perform simple OTA firmware updates:
+`from_file()` and `from_json()`.
 
 - function `ota.update.from_file(url: str, sha="", length=0, verify=True,
   verbose=True, reboot=True)`

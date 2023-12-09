@@ -5,6 +5,8 @@
 #   https://github.com/tve/mqboard/blob/master/mqrepl/mqrepl.py
 
 
+import binascii
+import struct
 import sys
 import time
 
@@ -18,6 +20,21 @@ ESP_ERR_OTA_VALIDATE_FAILED = const(-5379)
 OTA_MIN: int = const(16)  # type: ignore
 OTA_MAX: int = const(32)  # type: ignore
 
+OTA_SIZE = 0x20  # The size of an OTA record in bytes (32 bytes)
+OTA_BLOCKS = (0, 1)  # The offsets of the OTA records in the otadata partition
+OTA_FMT = b"<L20sLL"  # The format for reading/writing binary OTA records
+OTA_LABEL = b"\xff" * OTA_SIZE  # The expected label field in the OTA record
+OTA_CRC_INIT = 0xFFFFFFFF  # The initial value for the CRC32 checksum
+OTADATA_TYPE = (1, 0)  # The type and subtype of the otadata partition
+
+otastate = {
+    0: "NEW",
+    1: "PENDING",
+    2: "VALID",
+    3: "INVALID",
+    4: "ABORTED",
+    0xFFFFFFFF: "UNDEFINED",
+}
 
 current_ota = Partition(Partition.RUNNING)  # Partition we booted from
 next_ota = None  # Partition for the next OTA update (if device is OTA enabled)
@@ -70,6 +87,29 @@ def ota_partitions() -> list[Partition]:
     return partitions
 
 
+# Print the status of the otadata partition
+def otadata() -> None:
+    otadata: Partition = Partition.find(*OTADATA_TYPE)[0]  # Get the otadata partition
+    valid_seq = 1
+    for i in (0, 1):
+        otadata.readblocks(i, (b := bytearray(OTA_SIZE)))
+        seq, _, state_num, crc = struct.unpack(OTA_FMT, b)
+        state = otastate[state_num]
+        is_valid = (
+            state == "VALID"
+            and binascii.crc32(struct.pack(b"<L", seq), OTA_CRC_INIT) == crc
+        )
+        if is_valid and seq > valid_seq:
+            valid_seq = seq
+        print(f"OTA record: state={state}, seq={seq}, crc={crc}, valid={is_valid}")
+        print(
+            f"OTA record is {state}."
+            + (" Will be updated on next boot." if state == "VALID" else "")
+        )
+    p = ota_partitions()
+    print(f"Next boot is '{p[(valid_seq - 1) % len(p)].info()[4]}'.")
+
+
 # Print a detailed summary of the OTA status of the device
 def status() -> None:
     upyversion, pname = sys.version.split(" ")[2], current_ota.info()[4]
@@ -83,6 +123,7 @@ def status() -> None:
         print(f"The next OTA partition for update is '{next_ota.info()[4]}'.")
     print(f"The / filesystem is mounted from partition '{bdev.info()[4]}'.")
     partition_table_print()
+    otadata()
 
 
 # Reboot the device after the provided delay

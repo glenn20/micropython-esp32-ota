@@ -10,7 +10,6 @@ import io
 from esp32 import Partition
 
 from .blockdev_writer import BlockDevWriter
-from .rollback import cancel as rollback_cancel
 from .status import ota_reboot
 
 
@@ -32,10 +31,10 @@ def open_url(url: str) -> io.BufferedReader:
     if url.split(":", 1)[0] not in ("http", "https"):
         return open(url, "rb")
     else:
-        import urequests as requests
+        import requests
 
         r = requests.get(url)
-        code: int = r.status_code  # type: ignore
+        code: int = r.status_code
         if code != 200:
             r.close()
             raise ValueError(f"HTTP Error: {code}")
@@ -55,8 +54,6 @@ class OTA:
         # Get the next free OTA partition
         # Raise OSError(ENOENT) if no OTA partition available
         self.part = Partition(Partition.RUNNING).get_next_update()
-        # Raise OSError(-261) if bootloader is not OTA capable
-        rollback_cancel()
         if verbose:
             name: str = self.part.info()[4]
             print(f"Writing new micropython image to OTA partition '{name}'...")
@@ -140,12 +137,14 @@ class OTA:
             print('OTA json must include "firmware", "sha" and "length" keys.')
             raise err
 
+
 # Convenience functions which use the OTA class to perform OTA updates.
 def from_file(
     url: str, sha="", length=0, verify=True, verbose=True, reboot=True
 ) -> None:
     with OTA(verify, verbose, reboot) as ota_update:
         ota_update.from_firmware_file(url, sha, length)
+
 
 def from_json(url: str, verify=True, verbose=True, reboot=True):
     with OTA(verify, verbose, reboot) as ota_update:
