@@ -27,13 +27,17 @@ class SocketWrapper:
 
 
 # Open a file or a URL and return a File-like object for reading
-def open_url(url: str) -> io.BufferedReader:
+def open_url(url: str, username=None, password=None) -> io.BufferedReader:
     if url.split(":", 1)[0] not in ("http", "https"):
         return open(url, "rb")
     else:
         import requests
 
-        r = requests.get(url)
+        if username and password:
+            r = requests.get(url, auth = (username, password))
+        else:
+            r = requests.get(url)
+
         code: int = r.status_code
         if code != 200:
             r.close()
@@ -106,10 +110,10 @@ class OTA:
     # - url: a filename or a http[s] url for the micropython.bin firmware.
     # - sha: the sha256sum of the firmware file
     # - length: the length (in bytes) of the firmware file
-    def from_firmware_file(self, url: str, sha: str = "", length: int = 0) -> int:
+    def from_firmware_file(self, url: str, sha: str = "", length: int = 0, username=None, password=None) -> int:
         if self.verbose:
             print(f"Opening firmware file {url}...")
-        with open_url(url) as f:
+        with open_url(url, username, password) as f:
             return self.from_stream(f, sha, length)
 
     # Load a firmware file, the location of which is read from a json file
@@ -140,12 +144,12 @@ class OTA:
 
 # Convenience functions which use the OTA class to perform OTA updates.
 def from_file(
-    url: str, sha="", length=0, verify=True, verbose=True, reboot=True
+    url: str, sha="", length=0, verify=True, verbose=True, reboot=True, username=None, password=None
 ) -> None:
     with OTA(verify, verbose, reboot) as ota_update:
-        ota_update.from_firmware_file(url, sha, length)
+        ota_update.from_firmware_file(url, sha, length, username, password)
 
 
-def from_json(url: str, verify=True, verbose=True, reboot=True):
+def from_json(url: str, verify=True, verbose=True, reboot=True, username=None, password=None):
     with OTA(verify, verbose, reboot) as ota_update:
-        ota_update.from_json(url)
+        ota_update.from_json(url, username, password)

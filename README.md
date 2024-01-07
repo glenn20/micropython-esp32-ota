@@ -18,7 +18,7 @@ flash storage:
 
 ```py
 >>> import ota.update
->>> ota.update.from_firmware_file("http://nas.local/micropython.bin", reboot=True)
+>>> ota.update.from_file("http://nas.local/micropython.bin", reboot=True)
 Writing new micropython image to OTA partition 'ota_0'...
 Device capacity: 384 x 4096 byte blocks.
 Opening firmware file http://nas.local/micropython.bin...
@@ -166,7 +166,7 @@ convenience functions which use `OTA` to perform simple OTA firmware updates:
 `from_file()` and `from_json()`.
 
 - function `ota.update.from_file(url: str, sha="", length=0, verify=True,
-  verbose=True, reboot=True)`
+  verbose=True, reboot=True, username="", password="")`
 
   Read a micropython firmware from url and write it to the next ota partition.
   sha and length are used to validate the data written to the partition.
@@ -180,9 +180,11 @@ convenience functions which use `OTA` to perform simple OTA firmware updates:
   - `verbose=True` (optional) prints out verbose information of what it is doing
   - `reboot=True` (optional) Performs a `machine.hard_reset()` 10 seconds after
     a successful OTA update.
+  - 'username' (optional) Username for http authentication.
+  - 'password' (optional) Password for http authentication.
 
 - function `ota.update.from_json(url: str, sha="", length=0, verify=True,
-  verbose=True, reboot=True)`
+  verbose=True, reboot=True, username="", password="")`
 
   Read a JSON file from **url** (must end in ".json") containing the **url**,
   **sha** and **length** of the firmware file. Then, read the firmware file and
