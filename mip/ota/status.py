@@ -36,16 +36,24 @@ otastate = {
     0xFFFFFFFF: "UNDEFINED",
 }
 
+otadata_part = p[0] if (p := Partition.find(*OTADATA_TYPE)) else None
 current_ota = Partition(Partition.RUNNING)  # Partition we booted from
 next_ota = None  # Partition for the next OTA update (if device is OTA enabled)
 try:
-    next_ota = current_ota.get_next_update()
+    if otadata_part:  # Avoid IDF error messages by checking for otadata partition
+        next_ota = current_ota.get_next_update()
 except OSError:
     pass
 
 
-def boot_ota():  # Partition we will boot from on next boot
-    return Partition(Partition.BOOT)
+# Return the partition we will boot from on next boot
+def boot_ota() -> Partition:  # Partition we will boot from on next boot
+    if next_ota:  # Avoid IDF debug messages by checking for otadata partition
+        try:
+            return Partition(Partition.BOOT)
+        except OSError:  # OTA support is not available, return current partition
+            pass
+    return Partition(Partition.RUNNING)
 
 
 # Return True if the device is configured for OTA updates
@@ -88,11 +96,12 @@ def ota_partitions() -> list[Partition]:
 
 
 # Print the status of the otadata partition
-def otadata() -> None:
-    otadata: Partition = Partition.find(*OTADATA_TYPE)[0]  # Get the otadata partition
+def otadata_check() -> None:
+    if not otadata_part:
+        return
     valid_seq = 1
     for i in (0, 1):
-        otadata.readblocks(i, (b := bytearray(OTA_SIZE)))
+        otadata_part.readblocks(i, (b := bytearray(OTA_SIZE)))
         seq, _, state_num, crc = struct.unpack(OTA_FMT, b)
         state = otastate[state_num]
         is_valid = (
@@ -123,7 +132,12 @@ def status() -> None:
         print(f"The next OTA partition for update is '{next_ota.info()[4]}'.")
     print(f"The / filesystem is mounted from partition '{bdev.info()[4]}'.")
     partition_table_print()
-    otadata()
+    otadata_check()
+
+
+# The functions below are used by `ota.rollback` and are here to make
+# `ota.rollback` as lightweight as possible for the common use case:
+# calling `ota.rollback.cancel()` on every boot.
 
 
 # Reboot the device after the provided delay
