@@ -166,7 +166,7 @@ convenience functions which use `OTA` to perform simple OTA firmware updates:
 `from_file()` and `from_json()`.
 
 - function `ota.update.from_file(url: str, sha="", length=0, verify=True,
-  verbose=True, reboot=True, username="", password="")`
+  verbose=True, reboot=True, **request_args)`
 
   Read a micropython firmware from url and write it to the next ota partition.
   sha and length are used to validate the data written to the partition.
@@ -180,11 +180,16 @@ convenience functions which use `OTA` to perform simple OTA firmware updates:
   - `verbose=True` (optional) prints out verbose information of what it is doing
   - `reboot=True` (optional) Performs a `machine.hard_reset()` 10 seconds after
     a successful OTA update.
-  - 'username' (optional) Username for http authentication.
-  - 'password' (optional) Password for http authentication.
+  - `request_args`: any additional keyword arguments will be passed as
+    keyword arguments to `requests.get()`, eg:
+    - `ota.update.from_file("http://nas.local/micropython.bin",
+      auth=("username", "password"))`.
+
+  **Note:** The `username` and `password` arguments have been deprecated in
+  favour of `request-args`.
 
 - function `ota.update.from_json(url: str, sha="", length=0, verify=True,
-  verbose=True, reboot=True, username="", password="")`
+  verbose=True, reboot=True, **request_args)`
 
   Read a JSON file from **url** (must end in ".json") containing the **url**,
   **sha** and **length** of the firmware file. Then, read the firmware file and
@@ -228,7 +233,7 @@ updates.
       - **sha** and **length** may instead be provided as arguments to some
         methods below.
 
-- Method: `OTA.from_firmware_file(url: str, sha="", length=0) -> int`
+- Method: `OTA.from_firmware_file(url: str, sha="", length=0, **request_args) -> int`
 
   - Read a micropython firmware from **url** and write it to the next **ota**
     partition. **sha** and **length** are used to validate the data written to
@@ -237,8 +242,10 @@ updates.
     - `url` is a http[s] url or a filename on the device
     - `sha` (optional) is the expected sha256sum of the firmware file
     - `length` (optional) is the expected length of the firmware file (in bytes)
+    - `request_args`: any additional keyword arguments will be passed as
+      keyword arguments to `requests.get()`.
 
-- Method: `OTA.from_json(url: str) -> int`
+- Method: `OTA.from_json(url: str, **request_args) -> int`
 
   - Read a JSON file from **url** (must end in ".json") containing the **url**,
     **sha** and **length** of the firmware file. Then, read the firmware file
@@ -298,28 +305,26 @@ updates.
 #### Examples
 
 ```py
-from ota.update import OTA
+import ota.update
 
 # Write firmware from a url provided in a JSON file
-with OTA() as ota:
-    ota.from_json("http://nas.local/micropython/micropython.json")
+ota.update.from_json("http://nas.local/micropython/micropython.json")
 
 # Write firmware from a url or filename and reboot if successful and verified
-with OTA(reboot=True) as ota:
-    ota.from_firmware_file(
-        "http://nas.local/micropython/micropython.bin",
-        sha="7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e",
-        length=1558512)
+ota.update.from_firmware_file(
+    "http://nas.local/micropython/micropython.bin",
+    sha="7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e",
+    length=1558512)
 
 # Write firmware from an open stream:
-with OTA() as ota:
+with ota.update.OTA() as ota:
     with open("/sdcard/micropython.bin", "rb") as f:
         ota.from_stream(f)
 
 # Read a firmware file from a serial uart
 remaining = 1558512
 sha = "7920d527d578e90ce074b23f9050ffe4ebbd8809b79da0b81493f6ba721d110e"
-with OTA(length=remaining, sha=sha) as ota:
+with ota.update.OTA(length=remaining, sha=sha) as ota:
     data = memoryview(bytearray(1024))
     gc.collect()
     while remaining > 0:
@@ -328,7 +333,7 @@ with OTA(length=remaining, sha=sha) as ota:
         remaining -= n
 
 # Used without the "with" statement - must call close() explicitly
-ota = OTA()
+ota = ota.update.OTA()
 ota.from_json("http://nas.local/micropython/micropython.json")
 ota.close()
 ```

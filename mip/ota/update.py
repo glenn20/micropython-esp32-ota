@@ -27,22 +27,18 @@ class SocketWrapper:
 
 
 # Open a file or a URL and return a File-like object for reading
-def open_url(url: str, username=None, password=None) -> io.BufferedReader:
-    if url.split(":", 1)[0] not in ("http", "https"):
-        return open(url, "rb")
-    else:
+def open_url(url_or_filename: str, **kw) -> io.BufferedReader:
+    if url_or_filename.split(":", 1)[0] in ("http", "https"):
         import requests
 
-        if username and password:
-            r = requests.get(url, auth = (username, password))
-        else:
-            r = requests.get(url)
-
+        r = requests.get(url_or_filename, **kw)
         code: int = r.status_code
         if code != 200:
             r.close()
             raise ValueError(f"HTTP Error: {code}")
         return SocketWrapper(r.raw)  # type: ignore
+    else:
+        return open(url_or_filename, "rb")
 
 
 # OTA manages a MicroPython firmware update over-the-air. It checks that there
@@ -110,24 +106,25 @@ class OTA:
     # - url: a filename or a http[s] url for the micropython.bin firmware.
     # - sha: the sha256sum of the firmware file
     # - length: the length (in bytes) of the firmware file
-    def from_firmware_file(self, url: str, sha: str = "", length: int = 0, username=None, password=None) -> int:
+    def from_firmware_file(self, url: str, sha: str = "", length: int = 0, **kw) -> int:
         if self.verbose:
             print(f"Opening firmware file {url}...")
-        with open_url(url, username, password) as f:
+        with open_url(url, **kw) as f:
             return self.from_stream(f, sha, length)
 
     # Load a firmware file, the location of which is read from a json file
     # containing the url for the firmware file, the sha and length of the file.
     # - url: the name of a file or url containing the json.
-    def from_json(self, url: str) -> int:
+    # - kw: extra keywords arguments that will be passed to `requests.get()`
+    def from_json(self, url: str, **kw) -> int:
         if not url.endswith(".json"):
             raise ValueError("Url does not end with '.json'")
         if self.verbose:
             print(f"Opening json file {url}...")
-        with open_url(url) as f:
-            import json
+        with open_url(url, **kw) as f:
+            from json import load
 
-            data: dict = json.load(f)
+            data: dict = load(f)
         try:
             firmware: str = data["firmware"]
             sha: str = data["sha"]
@@ -136,7 +133,7 @@ class OTA:
                 # If firmware filename is relative, append to base of url of json file
                 baseurl, *_ = url.rsplit("/", 1)
                 firmware = f"{baseurl}/{firmware}"
-            return self.from_firmware_file(firmware, sha, length)
+            return self.from_firmware_file(firmware, sha, length, **kw)
         except KeyError as err:
             print('OTA json must include "firmware", "sha" and "length" keys.')
             raise err
@@ -144,12 +141,12 @@ class OTA:
 
 # Convenience functions which use the OTA class to perform OTA updates.
 def from_file(
-    url: str, sha="", length=0, verify=True, verbose=True, reboot=True, username=None, password=None
+    url: str, sha="", length=0, verify=True, verbose=True, reboot=True, **kw
 ) -> None:
     with OTA(verify, verbose, reboot) as ota_update:
-        ota_update.from_firmware_file(url, sha, length, username, password)
+        ota_update.from_firmware_file(url, sha, length, **kw)
 
 
-def from_json(url: str, verify=True, verbose=True, reboot=True, username=None, password=None):
+def from_json(url: str, verify=True, verbose=True, reboot=True, **kw) -> None:
     with OTA(verify, verbose, reboot) as ota_update:
-        ota_update.from_json(url, username, password)
+        ota_update.from_json(url, **kw)
