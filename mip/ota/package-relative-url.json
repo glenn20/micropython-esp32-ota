@@ -1,0 +1,11 @@
+{
+    "urls": [
+        ["ota/rollback.py", "rollback.py"],
+        ["ota/status.py", "status.py"],
+        ["ota/update.py", "update.py"],
+        ["ota/blockdev_writer.py", "blockdev_writer.py"]
+    ],
+    "deps": [
+    ],
+    "version": "0.3"
+}
